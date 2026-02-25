@@ -8,11 +8,11 @@ DB_DIR = BASE_DIR / "db"
 
 SQLITE_DB_PATH = DB_DIR / "converted.db"
 
-# پسوندهای مجاز فایل دامپ
-DUMP_EXTENSIONS = (".sql", ".gz", ".sql.gz")
-
 # encoding پیش‌فرض
 DEFAULT_ENCODING = "utf-8"
+
+# پسوندهای مجاز فایل دامپ
+DUMP_EXTENSIONS = (".sql", ".gz", ".sql.gz")
 
 EXCEL_SETTINGS = {
     "engine": "openpyxl",
@@ -23,10 +23,8 @@ EXCEL_SETTINGS = {
 # اگر تعداد ردیف‌ها بیشتر شد، فایل‌های بعدی با شماره (۱، ۲، ۳، ...) ایجاد می‌شوند
 EXCEL_MAX_ROWS_PER_FILE = 500000
 
-# فیلتر تاریخ شروع برای ساخت rfm_data (شمسی)
-# اگر "0" باشد: از ابتدا
-# نمونه معتبر: "1403/01/20" یا "1403-01-20" یا "1403/01/20 00:00:00"
-RFM_FROM_SHAMSI_DATE = "1404/01/20"
+# تعداد باندهای Quantile برای تحلیل RFM (پیش‌فرض: quintile=5)
+RFM_QUANTILE_BANDS = 5
 
 # گروه‌های جدول: نام گروه -> لیست جداول مورد انتظار (بدون پیشوند)
 # در فایل دامپ چک می‌شود کدام گروه‌ها به طور کامل وجود دارند

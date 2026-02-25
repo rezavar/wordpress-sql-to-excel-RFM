@@ -1,8 +1,9 @@
+import os
 import sys
 
 from bidi.algorithm import get_display
 
-from config import DUMP_DIR, OUTPUT_DIR, RFM_FROM_SHAMSI_DATE, SQLITE_DB_PATH
+from config import DUMP_DIR, OUTPUT_DIR, SQLITE_DB_PATH
 
 # رفع خطای Unicode در ویندوز
 if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
@@ -20,31 +21,38 @@ def rtl(text: str) -> str:
     return get_display(text)
 
 
+def _clear_screen():
+    os.system("cls" if sys.platform == "win32" else "clear")
+
+
 def main():
-    print(rtl("=== SQL to Excel Tool ==="))
-    print(rtl(f"پوشه دامپ: {DUMP_DIR}"))
-    print(rtl(f"خروجی: {OUTPUT_DIR}"))
-    print(rtl(f"دیتابیس SQLite: {SQLITE_DB_PATH}"))
-    if str(RFM_FROM_SHAMSI_DATE).strip() and str(RFM_FROM_SHAMSI_DATE).strip() != "0":
-        print(rtl(f"مبنای محاسبات RFM (شمسی): {RFM_FROM_SHAMSI_DATE}"))
-    else:
-        print(rtl("مبنای محاسبات RFM (شمسی): از ابتدا"))
+    while True:
+        print(rtl("=== SQL to Excel Tool ==="))
+        print(rtl(f"پوشه دامپ: {DUMP_DIR}"))
+        print(rtl(f"خروجی: {OUTPUT_DIR}"))
+        print(rtl(f"دیتابیس SQLite: {SQLITE_DB_PATH}"))
 
-    print(rtl("\nداده‌های جدید وارد کنید (۱) یا از داده‌های وارد شده استفاده کنید (۲)؟"))
-    try:
-        choice = input(rtl("انتخاب (۱ یا ۲، ۰ برای خروج):  ")).strip()
-    except (KeyboardInterrupt, EOFError):
-        print(rtl("\nلغو شد."))
-        return
+        print(rtl("\nیک گزینه را انتخاب کنید:"))
+        print(rtl("  ۱) وارد کردن داده‌های جدید"))
+        print(rtl("  ۲) استفاده از داده‌های وارد شده"))
+        print(rtl("  ۰) خروج"))
+        try:
+            choice = input(rtl("\nانتخاب:  ")).strip()
+        except (KeyboardInterrupt, EOFError):
+            print(rtl("\nلغو شد."))
+            return
 
-    if choice == "1":
-        run_import_new_data()
-    elif choice == "2":
-        run_use_existing_data()
-    elif choice == "0":
-        print(rtl("خروج."))
-    else:
-        print(rtl("انتخاب نامعتبر."))
+        if choice == "1":
+            run_import_new_data()
+            return
+        if choice == "2":
+            run_use_existing_data()
+            return
+        if choice == "0":
+            print(rtl("خروج."))
+            return
+        # غیر از ۰، ۱، ۲: پاک کردن صفحه و پرسیدن دوباره
+        _clear_screen()
 
 
 if __name__ == "__main__":

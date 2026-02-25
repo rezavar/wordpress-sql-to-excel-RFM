@@ -2,15 +2,10 @@
 import shutil
 from pathlib import Path
 
+import jdatetime
 from bidi.algorithm import get_display
 
-from config import (
-    DUMP_DIR,
-    OUTPUT_DIR,
-    RFM_FROM_SHAMSI_DATE,
-    SQLITE_DB_PATH,
-    TABLE_GROUPS,
-)
+from config import DUMP_DIR, OUTPUT_DIR, SQLITE_DB_PATH, TABLE_GROUPS
 from core.customer_purchases import (
     CUSTOMER_PURCHASES_VIEW,
     create_customer_purchases_view,
@@ -20,6 +15,7 @@ from core.db_manager import SQLiteManager
 from core.dump_reader import DumpReader
 from core.excel_exporter import ExcelExporter
 from core.importer import DumpImporter
+from core.rfm_constants import create_rfm_constant_excel
 from core.rfm_data import RFM_DATA_TABLE, create_rfm_data_table, get_rfm_data_row_count
 from core.user_full_data import (
     USER_FULL_DATA_TABLE,
@@ -72,8 +68,32 @@ def select_dump_file() -> str | None:
             return None
 
 
+def _ask_rfm_base_date() -> str:
+    """از کاربر مبنای محاسبه RFM را می‌گیرد: از ابتدا (۰) یا تاریخ شمسی (۱)."""
+    print(rtl("\nمبنای محاسبات RFM:"))
+    print(rtl("  ۰) از ابتدای تراکنش‌ها"))
+    print(rtl("  ۱) می‌خوام تاریخ انتخاب کنم"))
+    while True:
+        try:
+            choice = input(rtl("\nانتخاب:  ")).strip()
+            if choice == "0":
+                return "0"
+            if choice == "1":
+                date_val = input(rtl("تاریخ شمسی (مثال 1404/01/20):  ")).strip()
+                return date_val if date_val else "0"
+            print(rtl("لطفاً ۰ یا ۱ وارد کنید."))
+        except (KeyboardInterrupt, EOFError):
+            return "0"
+
+
 def run_import_new_data() -> None:
     """وارد کردن دامپ جدید، ساخت viewها، خروجی Excel و کپی دیتابیس به پوشه خروجی."""
+    rfm_from_shamsi_date = _ask_rfm_base_date()
+    if str(rfm_from_shamsi_date).strip() and str(rfm_from_shamsi_date).strip() != "0":
+        print(rtl(f"مبنای محاسبات RFM (شمسی): {rfm_from_shamsi_date}"))
+    else:
+        print(rtl("مبنای محاسبات RFM (شمسی): از ابتدا"))
+
     # ۱. خالی کردن دیتابیس موقت
     with SQLiteManager(SQLITE_DB_PATH) as db:
         dropped = db.clear_all_tables()
@@ -138,11 +158,11 @@ def run_import_new_data() -> None:
                 else:
                     print(rtl("  خطا در ایجاد جدول user_full_data."))
 
-                if create_rfm_data_table(db, from_shamsi_date=RFM_FROM_SHAMSI_DATE):
+                if create_rfm_data_table(db, from_shamsi_date=rfm_from_shamsi_date):
                     count = get_rfm_data_row_count(db)
                     table_row_counts[RFM_DATA_TABLE] = count
-                    if str(RFM_FROM_SHAMSI_DATE).strip() and str(RFM_FROM_SHAMSI_DATE).strip() != "0":
-                        print(rtl(f"  جدول rfm_data ایجاد شد ({count} رکورد) - از تاریخ شمسی {RFM_FROM_SHAMSI_DATE}."))
+                    if str(rfm_from_shamsi_date).strip() and str(rfm_from_shamsi_date).strip() != "0":
+                        print(rtl(f"  جدول rfm_data ایجاد شد ({count} رکورد) - از تاریخ شمسی {rfm_from_shamsi_date}."))
                     else:
                         print(rtl(f"  جدول rfm_data ایجاد شد ({count} رکورد) - بدون فیلتر تاریخ."))
                 else:
@@ -157,7 +177,7 @@ def run_import_new_data() -> None:
         complete_groups=complete_groups,
         table_groups=TABLE_GROUPS,
         table_row_counts=table_row_counts,
-        rfm_from_shamsi_date=RFM_FROM_SHAMSI_DATE,
+        rfm_from_shamsi_date=rfm_from_shamsi_date,
     )
     print(rtl(f"\nپوشه خروجی: {output_folder}"))
     print(rtl("فایل README.txt ایجاد شد."))
@@ -207,6 +227,10 @@ def run_import_new_data() -> None:
             for p in paths:
                 print(rtl(f"فایل Excel: {p.name}"))
 
+            # ساخت فایل ثابت‌ها/لیبل‌های پیشنهادی RFM برای استفاده کاربر و مراحل بعد
+            const_path = create_rfm_constant_excel(db, output_folder)
+            print(rtl(f"فایل Excel: {const_path.name}"))
+
     # کپی دیتابیس موقت به پوشه خروجی
     dest_db = output_folder / "converted.db"
     shutil.copy2(SQLITE_DB_PATH, dest_db)
@@ -219,7 +243,10 @@ def run_use_existing_data() -> Path | None:
     if not output_path.exists():
         output_path.mkdir(parents=True, exist_ok=True)
 
-    subdirs = sorted([p for p in output_path.iterdir() if p.is_dir()])
+    subdirs = [p for p in output_path.iterdir() if p.is_dir()]
+    # مرتب‌سازی بر اساس تاریخ ایجاد؛ جدیدترین بالا
+    subdirs.sort(key=lambda p: p.stat().st_ctime, reverse=True)
+
     if not subdirs:
         print(rtl(f"هیچ پوشه‌ای در {OUTPUT_DIR} یافت نشد."))
         return None
@@ -227,7 +254,13 @@ def run_use_existing_data() -> Path | None:
     print(rtl("\nپوشه‌های خروجی موجود:"))
     print("-" * 50)
     for i, p in enumerate(subdirs):
-        print(f"  {i + 1}. {p.name}")
+        try:
+            ctime = p.stat().st_ctime
+            date_str = jdatetime.datetime.fromtimestamp(ctime).strftime("%Y/%m/%d %H:%M")
+        except Exception:
+            date_str = "-"
+        file_count = sum(1 for x in p.iterdir() if x.is_file())
+        print(rtl(f"  {i + 1}. {p.name}  {date_str}  ({file_count})"))
     print("-" * 50)
 
     while True:
