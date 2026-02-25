@@ -182,7 +182,7 @@ def build_rfm_charts(folder: Path) -> tuple[bool, str, list[str]]:
         if len(at_risk) == 0:
             ax.text(0.5, 0.5, "No At Risk customers", ha="center", va="center")
         else:
-            at_risk["recency_days"].hist(ax=ax, bins=min(30, max(1, len(at_risk) // 5)))
+            at_risk["recency_days"].hist(ax=ax, bins="auto", edgecolor="white")
         ax.set_xlabel("Recency (days)")
         ax.set_ylabel("Count")
         ax.set_title("Recency Distribution (At Risk)")
