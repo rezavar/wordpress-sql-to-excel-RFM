@@ -16,6 +16,7 @@ from core.db_manager import SQLiteManager
 from core.dump_reader import DumpReader
 from core.excel_exporter import ExcelExporter
 from core.importer import DumpImporter
+from core.rfm_charts import build_rfm_charts, _load_segment_rules
 from core.rfm_constants import create_rfm_constant_excel
 from core.rfm_data import RFM_DATA_TABLE, create_rfm_data_table, get_rfm_data_row_count
 from core.user_full_data import (
@@ -390,6 +391,8 @@ def _build_rfm_scores_file(folder: Path) -> tuple[bool, str]:
     if err:
         return False, err
 
+    segment_rules = _load_segment_rules(constant_file)
+
     output_file = folder / "rfm_scores.xlsx"
     wb_out = Workbook(write_only=True)
     ws_out = wb_out.create_sheet("rfm_scores")
@@ -400,6 +403,7 @@ def _build_rfm_scores_file(folder: Path) -> tuple[bool, str]:
             "f_score",
             "m_score",
             "rfm_score",
+            "segment",
             "recency_days",
             "total_orders",
             "total_spent",
@@ -453,6 +457,12 @@ def _build_rfm_scores_file(folder: Path) -> tuple[bool, str]:
                 m_score = _score_by_rules(total_spent, rules["total_spent"])
                 rfm_score = f"{r_score}{f_score}{m_score}"
 
+                segment = "Unclassified"
+                for seg, sr_min, sr_max, sf_min, sf_max, sm_min, sm_max in segment_rules:
+                    if sr_min <= r_score <= sr_max and sf_min <= f_score <= sf_max and sm_min <= m_score <= sm_max:
+                        segment = seg
+                        break
+
                 ws_out.append(
                     [
                         user_id,
@@ -460,6 +470,7 @@ def _build_rfm_scores_file(folder: Path) -> tuple[bool, str]:
                         f_score,
                         m_score,
                         rfm_score,
+                        segment,
                         recency_days,
                         total_orders,
                         total_spent,
@@ -474,6 +485,20 @@ def _build_rfm_scores_file(folder: Path) -> tuple[bool, str]:
         return True, rtl(f"فایل rfm_scores.xlsx با موفقیت ایجاد شد.")
     except Exception as e:
         return False, rtl(f"خطا در ساخت rfm_scores.xlsx: {e!s}")
+
+
+def _append_charts_to_readme(folder: Path, chart_files: list[str]) -> None:
+    """افزودن لیست نمودارهای تولیدشده به انتهای README.txt در پوشه خروجی."""
+    readme_path = Path(folder) / "README.txt"
+    if not readme_path.is_file():
+        return
+    try:
+        text = readme_path.read_text(encoding="utf-8")
+        suffix = "\n\nنمودارهای تولید شده:\n" + "\n".join(f"  {f}" for f in chart_files) + "\n"
+        if "نمودارهای تولید شده" not in text:
+            readme_path.write_text(text.rstrip() + suffix, encoding="utf-8")
+    except Exception:
+        pass
 
 
 def _validate_rfm_output_folder(folder: Path) -> tuple[bool, str]:
@@ -571,6 +596,13 @@ def run_use_existing_data() -> Path | None:
                     print(score_msg)
                     if not score_ok:
                         print(rtl("خطا در محاسبه امتیازها؛ فایل rfm_scores ساخته نشد."))
+                    else:
+                        chart_ok, chart_msg, chart_files = build_rfm_charts(chosen)
+                        print(rtl(chart_msg))
+                        if not chart_ok:
+                            print(rtl("خطا در ساخت نمودارها."))
+                        elif chart_files:
+                            _append_charts_to_readme(chosen, chart_files)
                 else:
                     print(rtl("فایل ها درست نیستند؛ دوباره داده‌ها را وارد کنید."))
                     print(msg)
