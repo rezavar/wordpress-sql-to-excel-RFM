@@ -103,7 +103,23 @@ def build_rfm_charts(folder: Path) -> tuple[bool, str, list[str]]:
     rules = _load_segment_rules(constant_file)
     if not rules:
         return False, "قواعد سگمنت در rfm_constant.xlsx یافت نشد.", []
-    df = _assign_segment(df, rules)
+
+    if "segment" not in df.columns:
+        df = _assign_segment(df, rules)
+
+    SEGMENT_COLORS = {
+        "Champions": "#2ecc71",
+        "Loyal": "#27ae60",
+        "Potential Loyalist": "#3498db",
+        "New Customers": "#9b59b6",
+        "Promising": "#1abc9c",
+        "Need Attention": "#f39c12",
+        "About to Sleep": "#e67e22",
+        "At Risk": "#e74c3c",
+        "Hibernating": "#95a5a6",
+        "Lost": "#7f8c8d",
+        "Unclassified": "#bdc3c7",
+    }
 
     charts_dir = folder / "charts"
     charts_dir.mkdir(parents=True, exist_ok=True)
@@ -112,12 +128,18 @@ def build_rfm_charts(folder: Path) -> tuple[bool, str, list[str]]:
     try:
         # 1) Heatmap R-F (count per r_score x f_score)
         pivot = df.groupby(["r_score", "f_score"]).size().unstack(fill_value=0)
+        pivot = pivot.sort_index(ascending=False)
         fig, ax = plt.subplots(figsize=(8, 6))
         im = ax.imshow(pivot.values, cmap="YlOrRd", aspect="auto")
         ax.set_xticks(range(len(pivot.columns)))
-        ax.set_xticklabels(pivot.columns)
+        ax.set_xticklabels([int(c) for c in pivot.columns])
         ax.set_yticks(range(len(pivot.index)))
-        ax.set_yticklabels(pivot.index)
+        ax.set_yticklabels([int(i) for i in pivot.index])
+        for i in range(len(pivot.index)):
+            for j in range(len(pivot.columns)):
+                val = pivot.values[i, j]
+                ax.text(j, i, str(int(val)), ha="center", va="center",
+                        color="white" if val > pivot.values.max() * 0.6 else "black", fontsize=9)
         ax.set_xlabel("F score")
         ax.set_ylabel("R score")
         ax.set_title("RF Segment Heatmap (count)")
@@ -130,8 +152,9 @@ def build_rfm_charts(folder: Path) -> tuple[bool, str, list[str]]:
 
         # 2) Bar chart segment size
         seg_counts = df["segment"].value_counts()
+        bar_colors_2 = [SEGMENT_COLORS.get(s, "#999999") for s in seg_counts.index]
         fig, ax = plt.subplots(figsize=(10, 5))
-        seg_counts.plot(kind="bar", ax=ax)
+        seg_counts.plot(kind="bar", ax=ax, color=bar_colors_2, edgecolor="white")
         ax.set_xlabel("Segment")
         ax.set_ylabel("Count")
         ax.set_title("Segment Size")
@@ -163,9 +186,10 @@ def build_rfm_charts(folder: Path) -> tuple[bool, str, list[str]]:
         generated.append("charts/frequency_vs_monetary_scatter.png")
 
         # 4) Revenue contribution by segment
-        rev = df.groupby("segment")["total_spent"].sum()
+        rev = df.groupby("segment")["total_spent"].sum().sort_values(ascending=False)
+        bar_colors_4 = [SEGMENT_COLORS.get(s, "#999999") for s in rev.index]
         fig, ax = plt.subplots(figsize=(10, 5))
-        rev.plot(kind="bar", ax=ax)
+        rev.plot(kind="bar", ax=ax, color=bar_colors_4, edgecolor="white")
         ax.set_xlabel("Segment")
         ax.set_ylabel("Total spent")
         ax.set_title("Revenue Contribution by Segment")
@@ -182,7 +206,10 @@ def build_rfm_charts(folder: Path) -> tuple[bool, str, list[str]]:
         if len(at_risk) == 0:
             ax.text(0.5, 0.5, "No At Risk customers", ha="center", va="center")
         else:
-            at_risk["recency_days"].hist(ax=ax, bins="auto", edgecolor="white")
+            at_risk["recency_days"].hist(
+                ax=ax, bins="auto", edgecolor="white",
+                color=SEGMENT_COLORS["At Risk"], alpha=0.85,
+            )
         ax.set_xlabel("Recency (days)")
         ax.set_ylabel("Count")
         ax.set_title("Recency Distribution (At Risk)")
@@ -195,17 +222,13 @@ def build_rfm_charts(folder: Path) -> tuple[bool, str, list[str]]:
         # 6) CLV vs RFM Score
         df["rfm_total"] = df["r_score"] + df["f_score"] + df["m_score"]
         fig, ax = plt.subplots(figsize=(10, 6))
-        colors = {"Champions": "#2ecc71", "Loyal": "#27ae60", "Potential Loyalist": "#3498db",
-                  "New Customers": "#9b59b6", "Promising": "#1abc9c", "Need Attention": "#f39c12",
-                  "About to Sleep": "#e67e22", "At Risk": "#e74c3c", "Hibernating": "#95a5a6",
-                  "Lost": "#7f8c8d", "Unclassified": "#bdc3c7"}
         seg_groups = df.groupby("segment")
         for seg_name, grp in seg_groups:
             ax.scatter(
                 grp["rfm_total"],
                 grp["total_spent"],
                 label=seg_name,
-                color=colors.get(seg_name, "#999999"),
+                color=SEGMENT_COLORS.get(seg_name, "#999999"),
                 alpha=0.6,
                 s=15,
             )
@@ -227,16 +250,16 @@ def build_rfm_charts(folder: Path) -> tuple[bool, str, list[str]]:
         seg_summary = seg_summary.sort_values("count", ascending=False)
         total_rev = seg_summary["revenue"].sum()
         labels = []
+        tree_colors = []
         for seg_name, row in seg_summary.iterrows():
             rev_pct = row["revenue"] / total_rev * 100 if total_rev else 0
             labels.append(f"{seg_name}\n{int(row['count'])} customers\n{rev_pct:.1f}% revenue")
-        palette = plt.cm.Set3.colors
-        seg_colors = [palette[i % len(palette)] for i in range(len(seg_summary))]
+            tree_colors.append(SEGMENT_COLORS.get(seg_name, "#999999"))
         fig, ax = plt.subplots(figsize=(12, 7))
         squarify.plot(
             sizes=seg_summary["count"].tolist(),
             label=labels,
-            color=seg_colors,
+            color=tree_colors,
             alpha=0.85,
             text_kwargs={"fontsize": 8, "weight": "bold"},
             ax=ax,
